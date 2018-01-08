@@ -14,8 +14,8 @@ namespace FileDrop
 {
     class Program
     {
-        //public static string baseURL = "https://drop.ahkpro.dk";
-        public static string baseURL = "http://192.168.0.201:8099";
+        public static string baseURL = "https://drop.ahkpro.dk";
+        //public static string baseURL = "http://192.168.0.201:8099";
         public static string accessKey = null;
 
         static void Main(string[] args)
