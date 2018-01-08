@@ -14,8 +14,13 @@ namespace FileDrop
 {
     class Program
     {
+        //public static string baseURL = "https://drop.ahkpro.dk";
+        public static string baseURL = "http://192.168.0.201:8099";
+        public static string accessKey = null;
+
         static void Main(string[] args)
         {
+            //MessageBox.Show("Attach debugger.");
             if(args.Length > 0)
             {
                 uploadFile(args[0]);
@@ -36,7 +41,7 @@ namespace FileDrop
                 return;
             }
 
-            if (text != null && text.StartsWith("https://drop."))
+            if (text != null && text.StartsWith(baseURL))
             {
                 string hash = text.Substring(text.LastIndexOf("/")+1);
                 
@@ -45,8 +50,29 @@ namespace FileDrop
 
                 if (!File.Exists(filename))
                 {
-                    myWebClient.DownloadFile("https://drop.ahkpro.dk/api/download/" + hash, filename);
-                    MessageBox.Show("File downloaded to: " + filename);
+                    try
+                    {
+                        myWebClient.DownloadFile(baseURL + "/api/download/" + hash + (accessKey != null ? "?accessKey=" + accessKey : "") , filename);
+                        MessageBox.Show("File downloaded to: " + filename);
+                    }
+                    catch (WebException wex)
+                    {
+                        if (((HttpWebResponse)wex.Response).StatusCode == HttpStatusCode.Forbidden)
+                        {
+                            string key = promptForText("Access Key", "Permission denied. Please enter access key.");
+                            if (key != "")
+                            {
+                                accessKey = key;
+                                myWebClient.DownloadFile(baseURL + "/api/download/" + hash + "?accessKey=" + accessKey, filename);
+                                MessageBox.Show("File downloaded to: " + filename);
+                            }
+                        }
+                        else
+                        {
+                            MessageBox.Show("Error: " + wex.ToString());
+                        }
+                        return;
+                    }
                 }
                 else
                 {
@@ -114,8 +140,7 @@ namespace FileDrop
 
         private static string getFilename(string hash)
         {
-            WebClient myWebClient = new WebClient();
-            Stream stream = myWebClient.OpenRead("https://drop.ahkpro.dk/api/file/" + hash);
+            Stream stream = openRead(baseURL + "/api/file/" + hash);
 
             var jsonReader = JsonReaderWriterFactory.CreateJsonReader(stream, new System.Xml.XmlDictionaryReaderQuotas());
             var root = XElement.Load(jsonReader);
@@ -124,12 +149,38 @@ namespace FileDrop
 
         private static bool fileExists(string hash)
         {
-            WebClient myWebClient = new WebClient();
-            Stream stream = myWebClient.OpenRead("https://drop.ahkpro.dk/api/exists/" + hash);
+            Stream stream = openRead(baseURL + "/api/exists/" + hash);
 
             var jsonReader = JsonReaderWriterFactory.CreateJsonReader(stream, new System.Xml.XmlDictionaryReaderQuotas());
             var root = XElement.Load(jsonReader);
             return root.XPathSelectElement("//result").Value == "true";
+        }
+
+        public static Stream openRead(string url)
+        {
+            try
+            {
+                WebClient myWebClient = new WebClient();
+                Stream stream = myWebClient.OpenRead(url + (accessKey != null ? "?accessKey=" + accessKey : ""));
+                return stream;
+            }
+            catch (WebException wex)
+            {
+                if (((HttpWebResponse)wex.Response).StatusCode == HttpStatusCode.Forbidden)
+                {
+                    string key = promptForText("Access Key", "Permission denied. Please enter access key.");
+                    if (key != "")
+                    {
+                        accessKey = key;
+                        return openRead(url);
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("Error: " + wex.ToString());
+                }
+                return null;
+            }
         }
 
         private static byte[] readStreamFully(Stream input)
@@ -152,18 +203,39 @@ namespace FileDrop
             string responseStr;
             byte[] responseArray;
             bool expectArray = true;
-            
             string hash = md5file(filename);
-            if (fileExists(hash))
+
+            try
             {
-                //MessageBox.Show("https://drop.ahkpro.dk/api/file/" + hash);
-                Stream stream = myWebClient.OpenRead("https://drop.ahkpro.dk/api/file/" + hash);
-                responseArray = readStreamFully(stream);
-                expectArray = false;
+
+                if (fileExists(hash))
+                {
+                    //MessageBox.Show(baseURL + "/api/file/" + hash);
+                    Stream stream = openRead(baseURL + "/api/file/" + hash);
+                    responseArray = readStreamFully(stream);
+                    expectArray = false;
+                }
+                else
+                {
+                    responseArray = myWebClient.UploadFile(baseURL + "/api/upload" + (accessKey != "" ? "?accessKey=" + accessKey : ""), filename);
+                }
             }
-            else
+            catch (WebException wex)
             {
-                responseArray = myWebClient.UploadFile("https://drop.ahkpro.dk/api/upload", filename);
+                if (((HttpWebResponse)wex.Response).StatusCode == HttpStatusCode.Forbidden)
+                {
+                    string key = promptForText("Access Key", "Permission denied. Please enter access key.");
+                    if (key != "")
+                    {
+                        accessKey = key;
+                        uploadFile(filename);
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("Error: " + wex.ToString());
+                }
+                return;
             }
 
             responseStr = System.Text.Encoding.UTF8.GetString(responseArray);
@@ -221,6 +293,28 @@ namespace FileDrop
 
             prompt.ShowDialog();
 
+        }
+
+        public static string promptForText(string text, string caption)
+        {
+            Form prompt = new Form()
+            {
+                Width = 500,
+                Height = 150,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                Text = caption,
+                StartPosition = FormStartPosition.CenterScreen
+            };
+            Label textLabel = new Label() { Left = 50, Top = 20, Text = text };
+            TextBox textBox = new TextBox() { Left = 50, Top = 50, Width = 400 };
+            Button confirmation = new Button() { Text = "Ok", Left = 350, Width = 100, Top = 70, DialogResult = DialogResult.OK };
+            confirmation.Click += (sender, e) => { prompt.Close(); };
+            prompt.Controls.Add(textBox);
+            prompt.Controls.Add(confirmation);
+            prompt.Controls.Add(textLabel);
+            prompt.AcceptButton = confirmation;
+
+            return prompt.ShowDialog() == DialogResult.OK ? textBox.Text : "";
         }
     }
 }
